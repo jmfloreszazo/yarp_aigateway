@@ -246,3 +246,127 @@ Content-Type: application/json
   "max_tokens": 100,
   "temperature": 0
 }
+
+
+### ═══════════════════════════════════════════════════════════════════════
+###  🔥 FULL FLOW SCENARIO — "Weather → AI Football Analysis" 🔥
+###
+###  This is the key demo. It shows how YARP routes different requests
+###  and how guardrails BLOCK cross-domain analysis.
+###
+###  SCENARIO:
+###    A sports analyst wants to know if the Madrid weather is suitable
+###    for a football match involving players from Siberia (Russia).
+###
+###  STEP 1 → Weather API:  ✅ Returns Madrid weather normally.
+###           (No guardrails — pure reverse proxy passthrough)
+###
+###  STEP 2 → AI analysis:  🚫 BLOCKED! The guardrail detects "football"
+###           in the prompt and blocks it with HTTP 422.
+###           Even though the weather data is legitimate, the AI Gateway
+###           refuses to provide analysis when the purpose is football.
+###
+###  💡 This proves the gateway policy:
+###     "We serve weather data, but we do NOT provide weather-based
+###      football analysis through our AI endpoint."
+### ═══════════════════════════════════════════════════════════════════════
+
+###
+
+### ── STEP 1: Get Madrid weather (✅ ALLOWED — no guardrails apply) ──
+### Weather µService returns temperature, humidity, wind for Madrid.
+### This request goes straight through YARP to port 5100. No filtering.
+### Expected: HTTP 200 with Madrid weather data.
+
+GET {{gateway}}/api/weather/Madrid
+
+###
+
+### ── STEP 2: Ask AI to analyze that weather for a football match (🚫 BLOCKED) ──
+### Now we take the weather data and ask the AI:
+### "Given Madrid's weather, how would a football match go for
+###  players from Siberia, Russia?"
+###
+### Even though the weather query was perfectly fine, the AI Gateway
+### BLOCKS this request because "football" is a restricted topic.
+### The guardrail fires INSIDE the YARP pipeline, before the request
+### ever reaches Azure OpenAI.
+###
+### Expected: HTTP 422 — blocked by topic guardrail ("football").
+
+POST {{gateway}}/ai/chat/completions
+Content-Type: application/json
+
+{
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a sports weather analyst. Use real-time weather data to assess match conditions."
+    },
+    {
+      "role": "user",
+      "content": "The current weather in Madrid is: 22°C, partly cloudy, humidity 45%, wind 15 km/h NW. Considering these conditions, how would a football match go for players coming from Siberia, Russia, who are used to -30°C winters? Analyze the climate impact on their performance in this Champions League qualifying match."
+    }
+  ],
+  "max_tokens": 500,
+  "temperature": 0.7
+}
+
+###
+
+### ── STEP 3 (PROOF): Same weather question WITHOUT football → (✅ ALLOWED) ──
+### To prove it's the football topic that triggers the block (not the
+### weather data itself), here we ask about weather impact on outdoor
+### workers — same Madrid weather, no football. This goes through fine.
+###
+### Expected: HTTP 200 — AI responds normally about weather and workers.
+
+POST {{gateway}}/ai/chat/completions
+Content-Type: application/json
+
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "The current weather in Madrid is: 22°C, partly cloudy, humidity 45%, wind 15 km/h NW. Is this good weather for outdoor construction work? Answer briefly."
+    }
+  ],
+  "max_tokens": 150,
+  "temperature": 0
+}
+
+###
+
+### ── STEP 4 (CONTRAST): Same weather + same Siberians, but for a CONFERENCE → (✅ ALLOWED) ──
+### This is the killer proof. EXACT same ingredients:
+###   ✓ Madrid weather data (22°C, partly cloudy)
+###   ✓ People coming from Siberia, Russia
+###
+### But the PURPOSE is a tech conference, not football.
+### The guardrail has no issue with conferences — only with football.
+###
+### Compare STEP 2 vs STEP 4:
+###   STEP 2: "Madrid weather + Siberians + football"  → 🚫 BLOCKED
+###   STEP 4: "Madrid weather + Siberians + conference" → ✅ ALLOWED
+###
+### Same data, same people, different topic. That's the guardrail in action.
+###
+### Expected: HTTP 200 — AI responds with clothing/comfort recommendations.
+
+POST {{gateway}}/ai/chat/completions
+Content-Type: application/json
+
+{
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are an event logistics assistant. Help organizers prepare for international conferences."
+    },
+    {
+      "role": "user",
+      "content": "The current weather in Madrid is: 22°C, partly cloudy, humidity 45%, wind 15 km/h NW. We are organizing a tech conference in Madrid and many attendees are flying in from Siberia, Russia, where they are used to -30°C winters. What clothing should we recommend? Should we adjust the venue air conditioning? Any tips for helping them adapt to the Madrid climate during the 3-day event?"
+    }
+  ],
+  "max_tokens": 300,
+  "temperature": 0.7
+}
