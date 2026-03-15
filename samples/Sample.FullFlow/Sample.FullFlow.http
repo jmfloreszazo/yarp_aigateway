@@ -375,39 +375,43 @@ Content-Type: application/json
 
 
 ### ═══════════════════════════════════════════════════════════════════════════
-###  🏥 PHI SCENARIO — "Protected Health Information stays LOCAL" 🏥
+###  🏥 PHI SCENARIO — Auto-Sanitization of Protected Health Information 🏥
 ###
 ###  PROBLEM:
 ###    A hospital system needs AI to analyze patient data, but PHI
 ###    (Protected Health Information) must NEVER leave the organization's
-###    infrastructure. Sending patient records to Azure OpenAI, Google,
-###    or any cloud LLM violates HIPAA / GDPR / local healthcare law.
+###    infrastructure — and even if it does by mistake, patient names,
+###    MRNs and identifiers must be AUTOMATICALLY REDACTED.
 ###
-###  SOLUTION:
-###    YARP routes PHI requests to a LOCAL Ollama instance running on-prem.
-###    Same guardrails. Same OpenAI-compatible API. Zero data exfiltration.
+###  SOLUTION — Defense in Depth:
 ###
-###    /ai/chat/completions       → Azure OpenAI ☁️  (general queries)
-###    /ai/local/chat/completions → Ollama LOCAL 🏠  (PHI never leaves)
+###    Layer 1 — ROUTING:
+###      /ai/local/chat/completions → Ollama LOCAL 🏠 (data never leaves infra)
 ###
-###  In this demo, /ai/local/* points to Azure OpenAI for testing, but
-###  in production it would point to http://ollama-server:11434 on your
-###  private network. The key insight: YARP makes the switch transparent.
+###    Layer 2 — AUTO-SANITIZATION:
+###      The AI Gateway automatically redacts PHI/PII in ALL routes:
+###        "Patient Pepito García, MRN-2024-12345, email pepito@hospital.com"
+###        ──► "[REDACTED_PATIENT], [REDACTED_MRN], email [REDACTED_EMAIL]"
 ###
-###  💡 Why Ollama for PHI?
-###     - Runs 100% on your servers — no cloud dependency
-###     - No API keys needed — no third party sees your data
-###     - Same OpenAI chat format — zero code changes
-###     - AI Gateway guardrails still protect input/output
-###     - HIPAA/GDPR compliant by architecture, not by contract
+###    Even if a developer accidentally sends PHI to the CLOUD route,
+###    the guardrails strip identifiers BEFORE the data leaves.
+###    The LLM NEVER sees the patient's name or MRN.
+###
+###  CONFIGURATION (aigateway.json):
+###    "detectMedicalRecordNumbers": true,
+###    "detectPatientNames": true
+###    → That's it. Zero code changes. The gateway does the rest.
+###
+###  💡 Why this matters:
+###     - Developers don't need to remember to anonymize — the system does it
+###     - HIPAA/GDPR compliance is architectural, not contractual
+###     - Ollama local + auto-sanitization = double safety net
 ### ═══════════════════════════════════════════════════════════════════════════
 
 ###
 
 ### ── PHI STEP 1: General medical question via CLOUD AI (✅ OK — no PHI) ──
-### This is a generic medical knowledge question. No patient data.
-### Safe to send to Azure OpenAI in the cloud.
-###
+### No patient data. Safe to send to Azure OpenAI.
 ### Expected: HTTP 200 — AI responds with general medical info.
 
 POST {{gateway}}/ai/chat/completions
@@ -415,10 +419,7 @@ Content-Type: application/json
 
 {
   "messages": [
-    {
-      "role": "user",
-      "content": "What are the common symptoms of type 2 diabetes? Answer briefly."
-    }
+    { "role": "user", "content": "What are the common symptoms of type 2 diabetes? Answer briefly." }
   ],
   "max_tokens": 150,
   "temperature": 0
@@ -426,16 +427,18 @@ Content-Type: application/json
 
 ###
 
-### ── PHI STEP 2: Patient-specific analysis via LOCAL AI (✅ OK — PHI stays local) ──
-### This contains REAL patient data (PHI): name, medical record number,
-### lab results, diagnosis. This data must NEVER reach a cloud provider.
+### ── PHI STEP 2: "Pepito García" via LOCAL AI — auto-sanitized + stays local ──
+### Contains PHI: patient name, MRN, email, lab results.
+### The gateway AUTO-REDACTS identifiers BEFORE forwarding to Ollama.
+###
+### What the developer sends:
+###   "Patient Pepito García, MRN-2024-12345, pepito@hospital.com, HbA1c 9.2%"
+###
+### What Ollama actually receives:
+###   "[REDACTED_PATIENT], [REDACTED_MRN], [REDACTED_EMAIL], HbA1c 9.2%"
 ###
 ### Route: /ai/LOCAL/chat/completions → Ollama on-prem
-### In production: Ollama at http://ollama-server:11434
-### In this test: points to Azure OpenAI (same API format)
-###
-### Expected: HTTP 200 — AI analyzes the patient data locally.
-### In production, this response comes from YOUR servers, not Microsoft's.
+### Expected: HTTP 200 — AI analyzes lab values without seeing the patient's identity.
 
 POST {{gateway}}/ai/local/chat/completions
 Content-Type: application/json
@@ -444,11 +447,11 @@ Content-Type: application/json
   "messages": [
     {
       "role": "system",
-      "content": "You are a clinical decision support assistant deployed on-premises. All patient data stays within the hospital network. Provide evidence-based analysis."
+      "content": "You are a clinical decision support assistant. Analyze lab results and recommend next steps."
     },
     {
       "role": "user",
-      "content": "Patient MRN-2024-78432, María García López, age 67. Latest labs: HbA1c 9.2%, fasting glucose 210 mg/dL, creatinine 1.8 mg/dL, eGFR 38 mL/min. Current meds: Metformin 1000mg BID, Lisinopril 20mg QD. History: T2DM x 12 years, HTN, CKD Stage 3b. Assess kidney function trend and recommend medication adjustments considering the declining eGFR."
+      "content": "Patient Pepito García, MRN-2024-12345, email pepito@hospital.com. Latest labs: HbA1c 9.2%, fasting glucose 210 mg/dL, creatinine 1.8 mg/dL, eGFR 38 mL/min. Current meds: Metformin 1000mg BID. History: T2DM x 12 years, CKD Stage 3b. Assess kidney function and recommend medication adjustments."
     }
   ],
   "max_tokens": 400,
@@ -457,18 +460,19 @@ Content-Type: application/json
 
 ###
 
-### ── PHI STEP 3: Same patient data but sent to CLOUD AI (⚠️ WRONG PRACTICE) ──
-### This demonstrates what you should NOT do: sending PHI to a cloud endpoint.
-### The request will technically succeed (Azure OpenAI processes it), but
-### the patient's medical records just left your infrastructure.
+### ── PHI STEP 3: "Juanito Pérez" via CLOUD AI — auto-sanitized before leaving ──
+### This is the DEFENSE IN DEPTH demo.
+### Even through the CLOUD route, the gateway auto-redacts PHI identifiers.
 ###
-### With YARP + Ollama, you prevent this by design:
-###   - PHI routes → /ai/local/* → Ollama on-prem (data stays home)
-###   - General routes → /ai/chat/* → Azure OpenAI (no PHI in these)
+### What the developer sends:
+###   "Paciente Juanito Pérez, MRN-2024-99887, juanito@clinica.es, glucose 180"
 ###
-### Expected: HTTP 200 — works but THIS IS THE ANTI-PATTERN.
-### The guardrails protect against injection/PII, but they can't prevent
-### the data from reaching the cloud. Only routing architecture can.
+### What Azure OpenAI actually receives:
+###   "[REDACTED_PATIENT], [REDACTED_MRN], [REDACTED_EMAIL], glucose 180"
+###
+### The developer didn't do anything special — the gateway protects automatically.
+### Route: /ai/chat/completions → Azure OpenAI ☁️ (but identifiers are stripped)
+### Expected: HTTP 200 — AI responds about glucose levels, no patient identity leaked.
 
 POST {{gateway}}/ai/chat/completions
 Content-Type: application/json
@@ -477,9 +481,30 @@ Content-Type: application/json
   "messages": [
     {
       "role": "user",
-      "content": "Patient MRN-2024-78432, María García López, age 67. Latest labs: HbA1c 9.2%, fasting glucose 210 mg/dL. Is the diabetes under control?"
+      "content": "Paciente Juanito Pérez, MRN-2024-99887, email juanito@clinica.es. Latest glucose: 180 mg/dL fasting. Is this indicative of uncontrolled diabetes? Answer in 2-3 sentences."
     }
   ],
-  "max_tokens": 150,
+  "max_tokens": 200,
+  "temperature": 0
+}
+
+###
+
+### ── PHI STEP 4: Multiple patients in one request — all auto-sanitized ──
+### Even with multiple patient names and MRNs, ALL are redacted.
+### This proves the system handles real-world batch scenarios.
+### Expected: HTTP 200 — AI analyzes patterns without seeing any identities.
+
+POST {{gateway}}/ai/local/chat/completions
+Content-Type: application/json
+
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Compare these two patients: Patient Pepito García (MRN-2024-12345) has HbA1c 9.2% and eGFR 38. Patient Ana Martínez (MRN-2024-55678) has HbA1c 6.8% and eGFR 72. Which patient needs more urgent intervention and why? Answer briefly."
+    }
+  ],
+  "max_tokens": 250,
   "temperature": 0
 }

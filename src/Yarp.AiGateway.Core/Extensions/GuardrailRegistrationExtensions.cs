@@ -89,6 +89,8 @@ public static class GuardrailRegistrationExtensions
             DetectSpanishDni = GetBool(def, "detectSpanishDni", true),
             DetectPassportNumbers = GetBool(def, "detectPassports", false),
             DetectDatesOfBirth = GetBool(def, "detectDatesOfBirth", false),
+            DetectMedicalRecordNumbers = GetBool(def, "detectMedicalRecordNumbers", false),
+            DetectPatientNames = GetBool(def, "detectPatientNames", false),
         };
     }
 

@@ -57,6 +57,13 @@ public sealed partial class PiiDetectionGuardrail : IInputGuardrail
         if (_options.DetectDatesOfBirth)
             sanitized = DetectAndRedact(sanitized, DateOfBirthRegex(), "DOB", "[REDACTED_DOB]", detections);
 
+        // PHI (Protected Health Information) patterns
+        if (_options.DetectMedicalRecordNumbers)
+            sanitized = DetectAndRedact(sanitized, MedicalRecordNumberRegex(), "MRN", "[REDACTED_MRN]", detections);
+
+        if (_options.DetectPatientNames)
+            sanitized = DetectAndRedact(sanitized, PatientNameRegex(), "PATIENT_NAME", "[REDACTED_PATIENT]", detections);
+
         // Custom patterns
         foreach (var custom in _options.CustomPatterns)
         {
@@ -127,6 +134,12 @@ public sealed partial class PiiDetectionGuardrail : IInputGuardrail
 
     [GeneratedRegex(@"\b(?:0[1-9]|[12]\d|3[01])[/\-.](?:0[1-9]|1[0-2])[/\-.](?:19|20)\d{2}\b", RegexOptions.Compiled)]
     private static partial Regex DateOfBirthRegex();
+
+    [GeneratedRegex(@"\b(?:MRN|NHC|HC|Medical\s*Record)[-:\s#]*\d[\d\-/]{3,12}\b", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
+    private static partial Regex MedicalRecordNumberRegex();
+
+    [GeneratedRegex(@"(?:[Pp]atient|[Pp]aciente)\s*:?\s*(?:[Nn]ame\s*:?\s*)?(?!Care|Data|History|Record|File|Status|Info)[A-ZÁÉÍÓÚÑÜÇ][a-záéíóúñüç]+\s+[A-ZÁÉÍÓÚÑÜÇ][a-záéíóúñüç]+(?:\s+[A-ZÁÉÍÓÚÑÜÇ][a-záéíóúñüç]+){0,2}", RegexOptions.Compiled)]
+    private static partial Regex PatientNameRegex();
 }
 
 public sealed record PiiDetection(string Type, int Position, int Length);
@@ -143,6 +156,8 @@ public sealed class PiiDetectionOptions
     public bool DetectSpanishDni { get; init; } = true;
     public bool DetectPassportNumbers { get; init; }
     public bool DetectDatesOfBirth { get; init; }
+    public bool DetectMedicalRecordNumbers { get; init; }
+    public bool DetectPatientNames { get; init; }
     public List<CustomPiiPattern> CustomPatterns { get; init; } = [];
 }
 

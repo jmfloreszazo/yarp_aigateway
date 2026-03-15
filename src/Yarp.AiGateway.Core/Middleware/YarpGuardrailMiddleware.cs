@@ -33,46 +33,58 @@ public sealed class YarpGuardrailMiddleware
             var body = await reader.ReadToEndAsync();
             context.Request.Body.Position = 0;
 
-            var prompt = ExtractPrompt(body);
+            var messageParts = ExtractPromptParts(body);
 
-            if (!string.IsNullOrEmpty(prompt))
+            if (messageParts.Count > 0)
             {
-                var request = new AiGatewayRequest
+                var inputGuardrails = context.RequestServices
+                    .GetServices<IInputGuardrail>()
+                    .OrderBy(g => g.Order)
+                    .ToList();
+
+                var userId = context.Request.Headers["X-User-Id"].FirstOrDefault();
+                var sanitizedBody = body;
+                var anySanitized = false;
+
+                // Evaluate each message content individually so that
+                // PII/PHI sanitization can be applied per-part to the body.
+                foreach (var part in messageParts)
                 {
-                    Prompt = prompt,
-                    UserId = context.Request.Headers["X-User-Id"].FirstOrDefault()
-                };
+                    var request = new AiGatewayRequest { Prompt = part, UserId = userId };
 
-                var inputGuardrails = context.RequestServices.GetServices<IInputGuardrail>();
-
-                foreach (var guardrail in inputGuardrails.OrderBy(g => g.Order))
-                {
-                    var decision = await guardrail.EvaluateAsync(request, context.RequestAborted);
-
-                    if (!decision.Allowed)
+                    foreach (var guardrail in inputGuardrails)
                     {
-                        logger?.LogWarning(
-                            "Input guardrail '{Guardrail}' blocked request: {Reason}",
-                            guardrail.Name, decision.Reason);
+                        var decision = await guardrail.EvaluateAsync(request, context.RequestAborted);
 
-                        context.Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
-                        context.Response.ContentType = "application/json";
-                        await context.Response.WriteAsJsonAsync(new
+                        if (!decision.Allowed)
                         {
-                            blocked = true,
-                            blockReason = decision.Reason ?? "Blocked by input guardrail"
-                        }, SerializerOptions);
-                        return;
+                            logger?.LogWarning(
+                                "Input guardrail '{Guardrail}' blocked request: {Reason}",
+                                guardrail.Name, decision.Reason);
+
+                            context.Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
+                            context.Response.ContentType = "application/json";
+                            await context.Response.WriteAsJsonAsync(new
+                            {
+                                blocked = true,
+                                blockReason = decision.Reason ?? "Blocked by input guardrail"
+                            }, SerializerOptions);
+                            return;
+                        }
+
+                        request = decision.UpdatedRequest ?? request;
                     }
 
-                    request = decision.UpdatedRequest ?? request;
+                    if (request.Prompt != part)
+                    {
+                        anySanitized = true;
+                        sanitizedBody = sanitizedBody.Replace(part, request.Prompt);
+                    }
                 }
 
-                // If the prompt was sanitized (e.g., PII redacted), rewrite the body
-                if (request.Prompt != prompt)
+                if (anySanitized)
                 {
                     logger?.LogInformation("Prompt sanitized by guardrails — rewriting request body");
-                    var sanitizedBody = body.Replace(prompt, request.Prompt);
                     var bytes = Encoding.UTF8.GetBytes(sanitizedBody);
                     context.Request.Body = new MemoryStream(bytes);
                     context.Request.ContentLength = bytes.Length;
@@ -140,10 +152,11 @@ public sealed class YarpGuardrailMiddleware
         HttpMethods.IsPost(method) || HttpMethods.IsPut(method) || HttpMethods.IsPatch(method);
 
     /// <summary>
-    /// Extracts user prompt text from an OpenAI-format chat body or a
-    /// simple <c>{ "prompt": "..." }</c> body.
+    /// Extracts individual message content strings from an OpenAI-format
+    /// chat body or a simple <c>{ "prompt": "..." }</c> body.
+    /// Returns each message content separately to enable per-part sanitization.
     /// </summary>
-    private static string? ExtractPrompt(string body)
+    private static List<string> ExtractPromptParts(string body)
     {
         try
         {
@@ -165,19 +178,20 @@ public sealed class YarpGuardrailMiddleware
                         parts.Add(text);
                     }
                 }
-                return parts.Count > 0 ? string.Join("\n", parts) : null;
+                return parts;
             }
 
             // Simple format: {"prompt": "…"}
-            if (root.TryGetProperty("prompt", out var promptProp))
-                return promptProp.GetString();
+            if (root.TryGetProperty("prompt", out var promptProp) &&
+                promptProp.GetString() is { } promptText)
+                return [promptText];
         }
         catch (JsonException)
         {
             // Non-JSON body — nothing to inspect
         }
 
-        return null;
+        return [];
     }
 
     /// <summary>

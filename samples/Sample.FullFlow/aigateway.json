@@ -52,7 +52,9 @@
           "detectCreditCards": true,
           "detectSsn": true,
           "detectIban": true,
-          "detectSpanishDni": true
+          "detectSpanishDni": true,
+          "detectMedicalRecordNumbers": true,
+          "detectPatientNames": true
         }
       },
       {

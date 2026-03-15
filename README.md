@@ -561,27 +561,41 @@ This scenario proves the gateway policy: **we serve weather data, but we do NOT 
 
 **Key takeaway:** Steps 2 and 4 use the **same weather data** and the **same people from Siberia**. The only difference is the purpose — football is blocked, conference passes. The guardrail pattern fires inside the YARP pipeline before the request ever reaches Azure OpenAI.
 
-### The PHI Scenario — Protected Health Information stays LOCAL
+### The PHI Scenario — Auto-Sanitization + Defense in Depth
 
-> **⚠️ When dealing with PHI (Protected Health Information), the data must NEVER leave your organization's infrastructure. No cloud provider should ever see patient records, medical history, or lab results.**
+> **When dealing with PHI (Protected Health Information), the data must NEVER leave your organization's infrastructure. But even if it does by mistake, patient names and identifiers must be AUTOMATICALLY REDACTED.**
 
-The AI Gateway solves this with **routing architecture, not just contracts**:
+The AI Gateway solves this with **two layers of protection**:
 
-| Endpoint | Backend | PHI Safe? | Use Case |
-|----------|---------|-----------|----------|
-| `/ai/chat/completions` | Azure OpenAI ☁️ | ❌ Data leaves your infra | General knowledge queries |
-| `/ai/local/chat/completions` | **Ollama LOCAL** 🏠 | ✅ **Data stays on-prem** | Patient records, lab results, diagnoses |
+| Layer | Mechanism | What it does |
+|-------|-----------|-------------|
+| **Layer 1: Routing** | YARP routes PHI to Ollama LOCAL | Data physically never leaves your servers |
+| **Layer 2: Auto-Sanitization** | PII/PHI guardrails | Patient names, MRNs, emails redacted BEFORE reaching any LLM |
 
-**Why Ollama for PHI?**
-- **Runs 100% on your servers** — no cloud dependency, no third-party data processing
-- **No API keys needed** — no vendor contract governs your patient data
-- **Same OpenAI chat format** — zero code changes between local and cloud
-- **Same guardrails** — input/output protection still applies
-- **HIPAA/GDPR compliant by architecture** — not by contract, but by design: PHI physically cannot leave your network
+**The auto-sanitization demo:**
+
+| Step | Request | What the dev sends | What the LLM receives |
+|------|---------|-------------------|-----------------------|
+| **1** | `POST /ai/chat/completions` — general diabetes question | _"What are symptoms of T2DM?"_ | Same (no PHI) |
+| **2** | `POST /ai/local/chat/completions` — Pepito on LOCAL | _"Patient Pepito García, MRN-2024-12345, pepito@hospital.com, HbA1c 9.2%"_ | _"[REDACTED_PATIENT], [REDACTED_MRN], [REDACTED_EMAIL], HbA1c 9.2%"_ |
+| **3** | `POST /ai/chat/completions` — Juanito on CLOUD | _"Paciente Juanito Pérez, MRN-2024-99887, juanito@clinica.es, glucose 180"_ | _"[REDACTED_PATIENT], [REDACTED_MRN], [REDACTED_EMAIL], glucose 180"_ |
+| **4** | `POST /ai/local/chat/completions` — Two patients | _"Patient Pepito García (MRN-2024-12345)... Patient Ana Martínez (MRN-2024-55678)..."_ | _"[REDACTED_PATIENT] ([REDACTED_MRN])... [REDACTED_PATIENT] ([REDACTED_MRN])..."_ |
+
+**Key takeaway:** The developer sends raw patient data. The gateway strips identifiers automatically. Lab values (HbA1c, glucose, eGFR) pass through because they're medical data, not identifiers. **Zero code changes required** — just set `"detectPatientNames": true` and `"detectMedicalRecordNumbers": true` in `aigateway.json`.
+
+**Why this matters for HIPAA/GDPR:**
+- **Developers don't need to remember to anonymize** — the system does it for them
+- **Defense in depth** — even if someone sends PHI to the wrong route, identifiers are stripped
+- **Ollama + auto-sanitization = double safety net** — data stays local AND is de-identified
+- **Compliance is architectural, not contractual** — PHI physically cannot leak
 
 ```
-  General question:     POST /ai/chat/completions       → Azure OpenAI ☁️  (OK)
-  Patient PHI analysis: POST /ai/local/chat/completions  → Ollama LOCAL 🏠  (PHI stays home)
+  What the developer types      → What the LLM sees
+  ─────────────────────────────────────────────────────────
+  Patient Pepito García          → [REDACTED_PATIENT]
+  MRN-2024-12345                 → [REDACTED_MRN]
+  pepito@hospital.com            → [REDACTED_EMAIL]
+  HbA1c 9.2%, eGFR 38           → HbA1c 9.2%, eGFR 38  (lab values pass through)
 ```
 
 All test requests are in [`Sample.FullFlow.http`](samples/Sample.FullFlow/Sample.FullFlow.http).

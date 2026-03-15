@@ -161,4 +161,115 @@ public class PiiDetectionGuardrailTests
         Assert.True(result.Allowed);
         Assert.Contains("[REDACTED_ID]", result.UpdatedRequest!.Prompt);
     }
+
+    // ─── PHI (Protected Health Information) ──────────────────────
+
+    [Theory]
+    [InlineData("MRN-2024-78432")]
+    [InlineData("NHC: 78432")]
+    [InlineData("HC-2024/12345")]
+    [InlineData("Medical Record 2024-78432")]
+    public async Task Detects_medical_record_numbers(string mrn)
+    {
+        var guardrail = new PiiDetectionGuardrail(
+            new PiiDetectionOptions { Mode = PiiMode.Block, DetectMedicalRecordNumbers = true },
+            NullLogger<PiiDetectionGuardrail>.Instance);
+
+        var result = await guardrail.EvaluateAsync(
+            MakeRequest($"Analyze data for {mrn}"), CancellationToken.None);
+        Assert.False(result.Allowed);
+    }
+
+    [Fact]
+    public async Task Sanitize_mode_redacts_mrn()
+    {
+        var guardrail = new PiiDetectionGuardrail(
+            new PiiDetectionOptions { Mode = PiiMode.Sanitize, DetectMedicalRecordNumbers = true },
+            NullLogger<PiiDetectionGuardrail>.Instance);
+
+        var result = await guardrail.EvaluateAsync(
+            MakeRequest("Patient record MRN-2024-78432, HbA1c 9.2%"), CancellationToken.None);
+
+        Assert.True(result.Allowed);
+        Assert.Contains("[REDACTED_MRN]", result.UpdatedRequest!.Prompt);
+        Assert.DoesNotContain("MRN-2024-78432", result.UpdatedRequest.Prompt);
+    }
+
+    [Theory]
+    [InlineData("Patient Pepito García, HbA1c 9.2%")]
+    [InlineData("Paciente: María López Fernández, edad 67")]
+    [InlineData("Patient Juan Pérez diagnosed with T2DM")]
+    public async Task Detects_patient_names_in_phi_context(string prompt)
+    {
+        var guardrail = new PiiDetectionGuardrail(
+            new PiiDetectionOptions { Mode = PiiMode.Block, DetectPatientNames = true },
+            NullLogger<PiiDetectionGuardrail>.Instance);
+
+        var result = await guardrail.EvaluateAsync(MakeRequest(prompt), CancellationToken.None);
+        Assert.False(result.Allowed);
+    }
+
+    [Fact]
+    public async Task Sanitize_mode_redacts_patient_name()
+    {
+        var guardrail = new PiiDetectionGuardrail(
+            new PiiDetectionOptions { Mode = PiiMode.Sanitize, DetectPatientNames = true },
+            NullLogger<PiiDetectionGuardrail>.Instance);
+
+        var result = await guardrail.EvaluateAsync(
+            MakeRequest("Patient Pepito García, age 45, diagnosed with diabetes"),
+            CancellationToken.None);
+
+        Assert.True(result.Allowed);
+        Assert.Contains("[REDACTED_PATIENT]", result.UpdatedRequest!.Prompt);
+        Assert.DoesNotContain("Pepito", result.UpdatedRequest.Prompt);
+    }
+
+    [Fact]
+    public async Task Patient_name_not_detected_when_disabled()
+    {
+        var result = await CreateGuardrail().EvaluateAsync(
+            MakeRequest("Patient Pepito García has diabetes"), CancellationToken.None);
+
+        Assert.True(result.Allowed);
+        Assert.Contains("Pepito", result.UpdatedRequest!.Prompt);
+    }
+
+    [Fact]
+    public async Task Phi_full_sanitization_redacts_name_mrn_and_email()
+    {
+        var guardrail = new PiiDetectionGuardrail(
+            new PiiDetectionOptions
+            {
+                Mode = PiiMode.Sanitize,
+                DetectPatientNames = true,
+                DetectMedicalRecordNumbers = true,
+                DetectPhoneNumbers = false
+            },
+            NullLogger<PiiDetectionGuardrail>.Instance);
+
+        var result = await guardrail.EvaluateAsync(
+            MakeRequest("Patient Pepito García, MRN-2024-12345, HbA1c 9.2%, email pepito@hospital.com"),
+            CancellationToken.None);
+
+        Assert.True(result.Allowed);
+        var updated = result.UpdatedRequest!.Prompt;
+        Assert.Contains("[REDACTED_PATIENT]", updated);
+        Assert.Contains("[REDACTED_MRN]", updated);
+        Assert.Contains("[REDACTED_EMAIL]", updated);
+        Assert.DoesNotContain("Pepito", updated);
+        Assert.DoesNotContain("MRN-2024-12345", updated);
+        // Lab values are NOT redacted — they're medical data, not identifiers
+        Assert.Contains("HbA1c 9.2%", updated);
+    }
+
+    [Fact]
+    public async Task Mrn_not_detected_when_disabled()
+    {
+        var result = await CreateGuardrail().EvaluateAsync(
+            MakeRequest("Record MRN-2024-78432 has results"), CancellationToken.None);
+
+        Assert.True(result.Allowed);
+        Assert.Contains("MRN-2024-78432", result.UpdatedRequest!.Prompt);
+    }
 }

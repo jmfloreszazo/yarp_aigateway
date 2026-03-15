@@ -27,6 +27,7 @@ public sealed partial class PiiOutputGuardrail : IOutputGuardrail
         content = CreditCardRegex().Replace(content, "[REDACTED_CARD]");
         content = SsnRegex().Replace(content, "[REDACTED_SSN]");
         content = SpanishDniRegex().Replace(content, "[REDACTED_DNI]");
+        content = MedicalRecordNumberRegex().Replace(content, "[REDACTED_MRN]");
 
         if (content.Length != originalLength)
         {
@@ -51,4 +52,7 @@ public sealed partial class PiiOutputGuardrail : IOutputGuardrail
 
     [GeneratedRegex(@"\b\d{8}[A-Z]\b|\b[XYZ]\d{7}[A-Z]\b", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
     private static partial Regex SpanishDniRegex();
+
+    [GeneratedRegex(@"\b(?:MRN|NHC|HC|Medical\s*Record)[-:\s#]*\d[\d\-/]{3,12}\b", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
+    private static partial Regex MedicalRecordNumberRegex();
 }
