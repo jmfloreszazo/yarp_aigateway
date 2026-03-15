@@ -144,8 +144,8 @@ public class AiGatewayConfigLoaderTests
                     "rules": [
                         {
                             "name": "long-prompts",
-                            "provider": "mistral",
-                            "model": "mistral-large",
+                            "provider": "azure-openai",
+                            "model": "gpt-4o",
                             "conditions": [
                                 {
                                     "field": "prompt.length",

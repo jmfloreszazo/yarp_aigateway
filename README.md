@@ -1,6 +1,6 @@
 # Yarp.AiGateway
 
-A declarative **AI Gateway** built as a [YARP](https://github.com/microsoft/reverse-proxy) extension for .NET 10. Drop it into any ASP.NET Core app with a single JSON config file to get intelligent routing, safety guardrails, rate limiting, provider fallback, and audit logging across multiple LLM providers.
+An **AI Gateway** built as an extension of [YARP (Yet Another Reverse Proxy)](https://github.com/microsoft/reverse-proxy) for .NET 10. It plugs into a standard YARP reverse proxy and adds AI-specific guardrails, intelligent routing, PII redaction, prompt injection detection, rate limiting, and audit logging — all configured with a single JSON file.
 
 [![.NET 10](https://img.shields.io/badge/.NET-10-512BD4)](https://dotnet.microsoft.com)
 [![YARP](https://img.shields.io/badge/YARP-2.3.0-blue)](https://github.com/microsoft/reverse-proxy)
@@ -10,17 +10,25 @@ A declarative **AI Gateway** built as a [YARP](https://github.com/microsoft/reve
 
 ## TL;DR
 
-> **3 lines of code. 1 JSON file. Full AI safety.**
+> **YARP handles the reverse proxy. AI Gateway extends it with safety.**
 
 ```csharp
+// Standard YARP reverse proxy — routes, clusters, transforms
+builder.Services.AddReverseProxy()
+    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
+
+// AI Gateway extension — guardrails, PII, routing, audit
 builder.Services.AddAiGatewayFromJson("aigateway.json");
-app.UseAiGateway();
+
+var app = builder.Build();
+app.UseAiGateway();     // AI guardrail pipeline on POST /ai/chat
+app.MapReverseProxy();  // Standard YARP for everything else
 app.Run();
 ```
 
 | What you get | How |
 |---|---|
-| **Multi-provider routing** (OpenAI, Azure OpenAI, Mistral) | Declarative rules in `aigateway.json` |
+| **Multi-provider routing** (OpenAI, Azure OpenAI) | Declarative rules in `aigateway.json` |
 | **Automatic fallback** between providers | `"fallbacks": [{ "from": "openai", "to": "azure-openai" }]` |
 | **PII redaction** (emails, SSN, credit cards, DNI, IBAN...) | `{ "type": "pii", "mode": "sanitize" }` |
 | **Prompt injection detection** (30+ patterns + structural) | Always enabled by default |
@@ -31,12 +39,13 @@ app.Run();
 
 ```mermaid
 graph LR
-    App([Your App]) -->|POST /ai/chat| GW[AI Gateway]
+    App([Your App]) -->|HTTP requests| YARP[YARP Reverse Proxy]
+    YARP -->|Other routes| Backend[Backend Services]
+    App -->|POST /ai/chat| GW[AI Gateway Extension]
     GW --> G[Guardrails<br/>6 input · 2 output]
     G --> R[Smart Router<br/>rules + fallback]
     R --> P1[OpenAI]
     R --> P2[Azure OpenAI]
-    R --> P3[Mistral]
 ```
 
 ---
@@ -50,13 +59,15 @@ graph LR
     - [High-Level Flow](#high-level-flow)
     - [Request Lifecycle](#request-lifecycle)
     - [Guardrail Pipeline](#guardrail-pipeline)
+  - [How It Extends YARP](#how-it-extends-yarp)
   - [Features](#features)
   - [Project Structure](#project-structure)
   - [Quick Start](#quick-start)
-    - [1. Add the NuGet reference](#1-add-the-nuget-reference)
-    - [2. Create `aigateway.json`](#2-create-aigatewayjson)
-    - [3. Wire it up in `Program.cs`](#3-wire-it-up-in-programcs)
-    - [4. Send a request](#4-send-a-request)
+    - [1. Add the NuGet references](#1-add-the-nuget-references)
+    - [2. Configure standard YARP in `appsettings.json`](#2-configure-standard-yarp-in-appsettingsjson)
+    - [3. Create `aigateway.json`](#3-create-aigatewayjson)
+    - [4. Wire it up in `Program.cs`](#4-wire-it-up-in-programcs)
+    - [5. Send requests](#5-send-requests)
     - [Response](#response)
   - [Configuration Reference](#configuration-reference)
     - [Gateway](#gateway)
@@ -96,8 +107,18 @@ graph LR
 
 ```mermaid
 graph LR
-    Client([Client App]) -->|POST /ai/chat| MW[AI Gateway Middleware]
-    MW --> Pipeline
+    Client([Client App]) -->|HTTP requests| ASP[ASP.NET Core Pipeline]
+
+    subgraph YARP Extension
+        ASP -->|POST /ai/chat| AIGW[AI Gateway Middleware]
+        AIGW --> Pipeline
+    end
+
+    subgraph Standard YARP
+        ASP -->|Other routes| RP[YARP Reverse Proxy]
+        RP --> BE1[Backend Service A]
+        RP --> BE2[Backend Service B]
+    end
 
     subgraph Pipeline[AI Gateway Pipeline]
         direction TB
@@ -175,11 +196,51 @@ graph TD
 
 ---
 
+## How It Extends YARP
+
+[YARP (Yet Another Reverse Proxy)](https://github.com/microsoft/reverse-proxy) is Microsoft's open-source reverse proxy for .NET. It handles routing, load balancing, transforms, and health checks for any HTTP traffic through `AddReverseProxy()` and `MapReverseProxy()`.
+
+**Yarp.AiGateway** doesn't replace YARP — it **extends** it. You keep using YARP for standard reverse proxy routes (APIs, microservices, static backends) and layer the AI Gateway on top for LLM-specific traffic.
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                    ASP.NET Core Pipeline                       │
+├────────────────────────────────────────────────────────────────┤
+│                                                                │
+│  ┌──────────────────────┐    ┌──────────────────────────────┐  │
+│  │   YARP Reverse Proxy │    │   AI Gateway Extension       │  │
+│  │                      │    │                              │  │
+│  │  • Routes & Clusters │    │  • Input Guardrails (6)      │  │
+│  │  • Load Balancing    │    │  • Output Guardrails (2)     │  │
+│  │  • Transforms        │    │  • Multi-Provider Routing    │  │
+│  │  • Health Checks     │    │  • PII Redaction             │  │
+│  │  • Session Affinity  │    │  • Prompt Injection Detect.  │  │
+│  │                      │    │  • Quota Management          │  │
+│  │  GET /api/*   ──────►│    │  • Audit & Telemetry         │  │
+│  │  Standard proxying   │    │                              │  │
+│  │  No guardrails       │    │  POST /ai/chat  ────────────►│  │
+│  │                      │    │  Full guardrail pipeline     │  │
+│  └──────────────────────┘    └──────────────────────────────┘  │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+```
+
+| Aspect | Standard YARP | AI Gateway Extension |
+|--------|--------------|---------------------|
+| **Config** | `appsettings.json` → Routes, Clusters | `aigateway.json` → Providers, Guardrails |
+| **Registration** | `AddReverseProxy()` | `AddAiGatewayFromJson()` |
+| **Pipeline** | `MapReverseProxy()` | `UseAiGateway()` |
+| **Traffic** | Any HTTP route | `POST /ai/chat` |
+| **Auth** | Standard YARP transforms | Provider-specific (api-key, Bearer) |
+| **Safety** | None (raw proxy) | 6 input + 2 output guardrails |
+
+---
+
 ## Features
 
 | Category | Capabilities |
 |----------|-------------|
-| **Multi-Provider Routing** | OpenAI, Azure OpenAI, Mistral — with automatic fallback chains |
+| **Multi-Provider Routing** | OpenAI, Azure OpenAI — with automatic fallback chains |
 | **Declarative Config** | Single `aigateway.json` file with environment variable resolution (`env:VAR_NAME`) |
 | **Input Guardrails** | Prompt injection detection, PII redaction, semantic content analysis, secret detection, length limits, blocked patterns |
 | **Output Guardrails** | Response PII redaction, blocked pattern filtering |
@@ -251,95 +312,150 @@ Yarp.AiGateway.slnx
 │   │       └── PiiOutputGuardrail.cs
 │   │
 │   ├── Yarp.AiGateway.Providers.OpenAI/
-│   ├── Yarp.AiGateway.Providers.AzureOpenAI/
-│   └── Yarp.AiGateway.Providers.Mistral/
+│   └── Yarp.AiGateway.Providers.AzureOpenAI/
 │
 ├── samples/
 │   └── Sample.MinimalApi/                # Working sample application
-│       ├── Program.cs
-│       └── aigateway.json
+│       ├── Program.cs                    # YARP + AI Gateway wiring
+│       ├── aigateway.json                # AI Gateway config (guardrails, providers)
+│       ├── appsettings.json              # Standard YARP config (routes, clusters)
+│       └── Sample.MinimalApi.http        # 15 ready-to-run test requests
 │
 └── tests/
     ├── Yarp.AiGateway.Core.Tests/
-    └── Yarp.AiGateway.Guardrails.Tests/
+    ├── Yarp.AiGateway.Guardrails.Tests/
+    └── Yarp.AiGateway.IntegrationTests/  # 24 end-to-end tests vs Azure OpenAI
 ```
 
 ---
 
 ## Quick Start
 
-### 1. Add the NuGet reference
+### 1. Add the NuGet references
 
 ```xml
+<PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
 <ProjectReference Include="Yarp.AiGateway.Core" />
 ```
 
-### 2. Create `aigateway.json`
+### 2. Configure standard YARP in `appsettings.json`
+
+```json
+{
+  "ReverseProxy": {
+    "Routes": {
+      "my-backend": {
+        "ClusterId": "backend-cluster",
+        "Match": { "Path": "/api/{**remainder}" },
+        "Transforms": [
+          { "PathRemovePrefix": "/api" }
+        ]
+      }
+    },
+    "Clusters": {
+      "backend-cluster": {
+        "Destinations": {
+          "primary": { "Address": "https://my-backend-service.com/" }
+        }
+      }
+    }
+  }
+}
+```
+
+### 3. Create `aigateway.json`
 
 ```json
 {
   "gateway": {
-    "listenPath": "/ai",
+    "endpoint": "/ai/chat",
     "timeoutSeconds": 60
   },
   "providers": {
-    "openai": {
-      "type": "openai",
-      "endpoint": "https://api.openai.com",
-      "apiKey": "env:OPENAI_API_KEY",
-      "defaultModel": "gpt-4o"
+    "azure-openai": {
+      "type": "azure-openai",
+      "endpoint": "env:AZURE_OPENAI_ENDPOINT",
+      "apiKey": "env:AZURE_OPENAI_API_KEY",
+      "defaultModel": "gpt-4o",
+      "deploymentMap": {
+        "gpt-4o": "my-gpt4o-deployment"
+      }
     }
   },
   "routing": {
+    "defaultProvider": "azure-openai",
+    "defaultModel": "gpt-4o",
     "rules": [
-      {
-        "name": "default",
-        "provider": "openai",
-        "model": "gpt-4o",
-        "conditions": []
-      }
+      { "name": "default", "provider": "azure-openai", "model": "gpt-4o", "conditions": [] }
     ]
   },
   "guardrails": {
     "input": [
+      { "type": "max-length", "mode": "block", "parameters": { "maxLength": 32000 } },
       { "type": "prompt-injection", "mode": "block", "parameters": {} },
-      { "type": "pii", "mode": "sanitize", "parameters": {} },
-      { "type": "semantic", "mode": "block", "parameters": {} }
+      { "type": "pii", "mode": "sanitize", "parameters": { "detectEmails": true, "detectCreditCards": true } },
+      { "type": "secret-detection", "mode": "block", "parameters": {} },
+      {
+        "type": "blocked-patterns",
+        "mode": "block",
+        "parameters": {
+          "patterns": [
+            "DROP TABLE", "DELETE FROM", "TRUNCATE TABLE", "UNION SELECT",
+            "xp_cmdshell", "<script>", "<iframe>", "javascript:", "eval(",
+            "politics", "football", "Champions League"
+          ]
+        }
+      }
     ],
     "output": [
+      {
+        "type": "blocked-patterns",
+        "mode": "block",
+        "parameters": {
+          "patterns": [
+            "internal server error", "stack trace:", "password=",
+            "BEGIN RSA PRIVATE KEY", "AccountKey=", "sk-proj-"
+          ]
+        }
+      },
       { "type": "pii", "mode": "sanitize", "parameters": {} }
     ]
   }
 }
 ```
 
-### 3. Wire it up in `Program.cs`
+### 4. Wire it up in `Program.cs`
 
 ```csharp
 using Yarp.AiGateway.Core.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Standard YARP reverse proxy
+builder.Services.AddReverseProxy()
+    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
+
+// AI Gateway extension
 builder.Services.AddAiGatewayFromJson("aigateway.json");
 
 var app = builder.Build();
 
-app.UseAiGateway();
+app.UseAiGateway();     // Guardrail pipeline on /ai/chat
+app.MapReverseProxy();  // Standard YARP for other routes
 
 app.Run();
 ```
 
-### 4. Send a request
+### 5. Send requests
 
 ```bash
-curl -X POST http://localhost:5000/ai/chat \
+# AI Gateway — full guardrail pipeline
+curl -X POST http://localhost:5038/ai/chat \
   -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "Explain quantum computing",
-    "userId": "user-123",
-    "tenantId": "acme",
-    "maxTokens": 500
-  }'
+  -d '{ "prompt": "What is quantum computing?", "userId": "user-1", "maxTokens": 200 }'
+
+# Standard YARP proxy — raw passthrough, no guardrails
+curl http://localhost:5038/api/some-backend-endpoint
 ```
 
 ### Response
@@ -430,8 +546,7 @@ Rules use typed conditions with the following operators:
 {
   "routing": {
     "fallbacks": [
-      { "from": "openai", "to": "azure-openai" },
-      { "from": "azure-openai", "to": "mistral" }
+      { "from": "openai", "to": "azure-openai" }
     ]
   }
 }
@@ -440,8 +555,7 @@ Rules use typed conditions with the following operators:
 ```mermaid
 graph LR
     OAI[OpenAI] -- fails --> AZ[Azure OpenAI]
-    AZ -- fails --> MI[Mistral]
-    MI -- fails --> ERR[Error Response]
+    AZ -- fails --> ERR[Error Response]
 ```
 
 ### Guardrails
@@ -655,14 +769,12 @@ Applied to LLM responses before returning to the client.
 graph TB
     GW[AI Gateway] --> OAI[OpenAI<br/>/v1/chat/completions<br/>Bearer auth]
     GW --> AZ[Azure OpenAI<br/>/openai/deployments/.../chat/completions<br/>api-key header<br/>Deployment mapping]
-    GW --> MI[Mistral<br/>/v1/chat/completions<br/>Bearer auth]
 ```
 
 | Provider | Config Type | Auth | Features |
 |----------|------------|------|----------|
 | **OpenAI** | `openai` | Bearer token | Standard chat completions |
 | **Azure OpenAI** | `azure-openai` | `api-key` header | Deployment mapping, API versioning |
-| **Mistral** | `mistral` | Bearer token | OpenAI-compatible API |
 
 All providers implement the `IAiProvider` interface and normalize responses to a common `AiGatewayResponse` format including token counts and estimated cost.
 
@@ -732,7 +844,7 @@ builder.Services.AddSingleton<IAuditSink, SqlAuditSink>();
 
 ## Testing
 
-The project includes 63+ unit tests covering guardrails, routing, and configuration:
+The project includes **87 tests**: 63 unit tests + 24 integration tests against a real Azure OpenAI endpoint:
 
 ```bash
 dotnet test Yarp.AiGateway.slnx
@@ -747,6 +859,10 @@ dotnet test Yarp.AiGateway.slnx
 | **Prompt Injection** | 14 | 30+ patterns, structural attacks, role clustering |
 | **Condition Evaluator** | 15 | All 9 operators, metadata fields, multi-condition logic |
 | **Config Loader** | 4 | JSON parsing, env variable resolution, validation |
+| **Integration (Azure OpenAI)** | 24 | Happy path, PII sanitize, injection, SQL, XSS, secrets, topics, system prompt |
+| **Topic Blocking** | 5 | Politics, elections, football, Champions League, World Cup |
+| **Advanced SQL Patterns** | 3 | TRUNCATE TABLE, UNION SELECT, WAITFOR DELAY |
+| **XSS Variants** | 3 | `<iframe>`, `javascript:`, `eval()` |
 
 ---
 
@@ -768,7 +884,7 @@ dotnet test Yarp.AiGateway.slnx
 ## Requirements
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-- LLM provider API keys (OpenAI, Azure OpenAI, or Mistral)
+- LLM provider API keys (OpenAI or Azure OpenAI)
 
 ## License
 

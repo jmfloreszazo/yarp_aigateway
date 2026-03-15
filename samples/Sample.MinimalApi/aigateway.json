@@ -1,76 +1,36 @@
 {
   "gateway": {
-    "listenPath": "/ai",
+    "endpoint": "/ai/chat",
     "timeoutSeconds": 60
   },
+
   "providers": {
-    "openai": {
-      "type": "openai",
-      "endpoint": "https://api.openai.com",
-      "apiKey": "env:OPENAI_API_KEY",
-      "defaultModel": "gpt-4o"
-    },
     "azure-openai": {
       "type": "azure-openai",
-      "endpoint": "env:AZURE_OPENAI_ENDPOINT",
+      "endpoint": "https://testjmfzfoundryai.openai.azure.com",
       "apiKey": "env:AZURE_OPENAI_API_KEY",
-      "defaultModel": "gpt-4o",
+      "defaultModel": "gpt-5-chat",
+      "enabled": true,
       "deploymentMap": {
-        "gpt-4o": "gpt4o-deployment",
-        "gpt-4o-mini": "gpt4omini-deployment"
+        "gpt-5-chat": "gpt-5-chat"
       }
-    },
-    "mistral": {
-      "type": "mistral",
-      "endpoint": "https://api.mistral.ai",
-      "apiKey": "env:MISTRAL_API_KEY",
-      "defaultModel": "mistral-large-latest"
     }
   },
+
   "routing": {
+    "defaultProvider": "azure-openai",
+    "defaultModel": "gpt-5-chat",
     "rules": [
       {
-        "name": "high-priority-azure",
+        "name": "default-azure",
         "provider": "azure-openai",
-        "model": "gpt-4o",
-        "conditions": [
-          {
-            "field": "metadata.priority",
-            "operator": "eq",
-            "value": "high"
-          }
-        ]
-      },
-      {
-        "name": "long-prompts-to-mistral",
-        "provider": "mistral",
-        "model": "mistral-large-latest",
-        "conditions": [
-          {
-            "field": "prompt.length",
-            "operator": "gt",
-            "value": 8000
-          }
-        ]
-      },
-      {
-        "name": "default-openai",
-        "provider": "openai",
-        "model": "gpt-4o",
+        "model": "gpt-5-chat",
         "conditions": []
       }
     ],
-    "fallbacks": [
-      {
-        "from": "openai",
-        "to": "azure-openai"
-      },
-      {
-        "from": "azure-openai",
-        "to": "mistral"
-      }
-    ]
+    "fallbacks": []
   },
+
   "guardrails": {
     "input": [
       {
@@ -86,27 +46,15 @@
         "parameters": {}
       },
       {
-        "type": "semantic",
-        "mode": "block",
-        "parameters": {
-          "thresholds": {
-            "violence": 0.7,
-            "self-harm": 0.5,
-            "sexual": 0.6,
-            "hate": 0.5,
-            "illegal": 0.6,
-            "data-exfiltration": 0.5,
-            "manipulation": 0.6
-          }
-        }
-      },
-      {
         "type": "pii",
         "mode": "sanitize",
         "parameters": {
-          "customPatterns": [
-            "\\b[A-Z]{2}\\d{7}\\b"
-          ]
+          "detectEmails": true,
+          "detectPhones": true,
+          "detectCreditCards": true,
+          "detectSsn": true,
+          "detectIban": true,
+          "detectSpanishDni": true
         }
       },
       {
@@ -121,8 +69,28 @@
           "patterns": [
             "DROP TABLE",
             "DELETE FROM",
+            "TRUNCATE TABLE",
+            "INSERT INTO",
+            "UNION SELECT",
             "xp_cmdshell",
-            "<script>"
+            "EXEC xp_",
+            "WAITFOR DELAY",
+            "INTO OUTFILE",
+            "<script>",
+            "<iframe>",
+            "javascript:",
+            "onerror=",
+            "eval(",
+            "politics",
+            "political party",
+            "elections",
+            "president",
+            "congress",
+            "football",
+            "soccer",
+            "FIFA",
+            "Champions League",
+            "World Cup"
           ]
         }
       }
@@ -135,7 +103,23 @@
           "patterns": [
             "internal server error",
             "stack trace:",
-            "connection string"
+            "connection string",
+            "password=",
+            "api_key",
+            "apikey",
+            "secret_key",
+            "access_token",
+            "Authorization: Bearer",
+            "BEGIN RSA PRIVATE KEY",
+            "BEGIN PRIVATE KEY",
+            "AccountKey=",
+            "SharedAccessSignature=",
+            "DefaultEndpointsProtocol=",
+            "jdbc:",
+            "mongodb://",
+            "redis://",
+            "amqp://",
+            "sk-proj-"
           ]
         }
       },
@@ -146,15 +130,17 @@
       }
     ]
   },
+
   "quotas": {
-    "enabled": true,
-    "requestsPerMinute": 60,
-    "tokensPerMinute": 100000,
-    "scope": "user"
+    "enabled": false,
+    "rules": []
   },
+
   "telemetry": {
     "enabled": true,
-    "auditRequests": true,
-    "logLevel": "Information"
+    "logLevel": "Information",
+    "emitMetrics": true,
+    "emitTraces": true,
+    "emitAuditEvents": true
   }
 }

@@ -2,7 +2,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Yarp.AiGateway.Abstractions;
 using Yarp.AiGateway.Core.Configuration;
 using Yarp.AiGateway.Providers.AzureOpenAI;
-using Yarp.AiGateway.Providers.Mistral;
 using Yarp.AiGateway.Providers.OpenAI;
 
 namespace Yarp.AiGateway.Core.Extensions;
@@ -45,17 +44,6 @@ public static class ProviderRegistrationExtensions
                             provider.ApiKey,
                             provider.ApiVersion ?? "2025-01-01-preview",
                             provider.DeploymentMap);
-                    });
-                    break;
-
-                case "mistral":
-                    services.AddHttpClient($"ai-provider-{name}",
-                        client => client.BaseAddress = new Uri(provider.Endpoint));
-
-                    services.AddSingleton<IAiProvider>(sp =>
-                    {
-                        var factory = sp.GetRequiredService<IHttpClientFactory>();
-                        return new MistralProvider(factory.CreateClient($"ai-provider-{name}"), provider.ApiKey);
                     });
                     break;
 
