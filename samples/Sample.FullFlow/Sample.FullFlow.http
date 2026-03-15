@@ -3,9 +3,10 @@
 ###
 ###  Architecture:
 ###    Client → YARP Gateway (port 5050)
-###      ├─ /api/weather/*       → Weather µService (port 5100)
-###      ├─ /api/catalog/*       → Catalog µService (port 5200)
-###      └─ /ai/chat/completions → [Guardrails] → Azure OpenAI
+###      ├─ /api/weather/*             → Weather µService (port 5100)
+###      ├─ /api/catalog/*             → Catalog µService (port 5200)
+###      ├─ /ai/chat/completions       → [Guardrails] → Azure OpenAI ☁️
+###      └─ /ai/local/chat/completions → [Guardrails] → Ollama LOCAL 🏠 (PHI safe)
 ###
 ###  Prerequisites:
 ###    1. Set environment variable AZURE_OPENAI_API_KEY
@@ -14,7 +15,8 @@
 ###
 ###  All requests go through the YARP gateway on port 5050.
 ###  YARP routes each request to the correct backend service.
-###  Only AI requests go through the guardrail middleware.
+###  AI requests go through the guardrail middleware.
+###  PHI data routes to LOCAL Ollama — never leaves your infrastructure.
 ### ═══════════════════════════════════════════════════════════════
 
 @gateway = http://localhost:5050
@@ -369,4 +371,115 @@ Content-Type: application/json
   ],
   "max_tokens": 300,
   "temperature": 0.7
+}
+
+
+### ═══════════════════════════════════════════════════════════════════════════
+###  🏥 PHI SCENARIO — "Protected Health Information stays LOCAL" 🏥
+###
+###  PROBLEM:
+###    A hospital system needs AI to analyze patient data, but PHI
+###    (Protected Health Information) must NEVER leave the organization's
+###    infrastructure. Sending patient records to Azure OpenAI, Google,
+###    or any cloud LLM violates HIPAA / GDPR / local healthcare law.
+###
+###  SOLUTION:
+###    YARP routes PHI requests to a LOCAL Ollama instance running on-prem.
+###    Same guardrails. Same OpenAI-compatible API. Zero data exfiltration.
+###
+###    /ai/chat/completions       → Azure OpenAI ☁️  (general queries)
+###    /ai/local/chat/completions → Ollama LOCAL 🏠  (PHI never leaves)
+###
+###  In this demo, /ai/local/* points to Azure OpenAI for testing, but
+###  in production it would point to http://ollama-server:11434 on your
+###  private network. The key insight: YARP makes the switch transparent.
+###
+###  💡 Why Ollama for PHI?
+###     - Runs 100% on your servers — no cloud dependency
+###     - No API keys needed — no third party sees your data
+###     - Same OpenAI chat format — zero code changes
+###     - AI Gateway guardrails still protect input/output
+###     - HIPAA/GDPR compliant by architecture, not by contract
+### ═══════════════════════════════════════════════════════════════════════════
+
+###
+
+### ── PHI STEP 1: General medical question via CLOUD AI (✅ OK — no PHI) ──
+### This is a generic medical knowledge question. No patient data.
+### Safe to send to Azure OpenAI in the cloud.
+###
+### Expected: HTTP 200 — AI responds with general medical info.
+
+POST {{gateway}}/ai/chat/completions
+Content-Type: application/json
+
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "What are the common symptoms of type 2 diabetes? Answer briefly."
+    }
+  ],
+  "max_tokens": 150,
+  "temperature": 0
+}
+
+###
+
+### ── PHI STEP 2: Patient-specific analysis via LOCAL AI (✅ OK — PHI stays local) ──
+### This contains REAL patient data (PHI): name, medical record number,
+### lab results, diagnosis. This data must NEVER reach a cloud provider.
+###
+### Route: /ai/LOCAL/chat/completions → Ollama on-prem
+### In production: Ollama at http://ollama-server:11434
+### In this test: points to Azure OpenAI (same API format)
+###
+### Expected: HTTP 200 — AI analyzes the patient data locally.
+### In production, this response comes from YOUR servers, not Microsoft's.
+
+POST {{gateway}}/ai/local/chat/completions
+Content-Type: application/json
+
+{
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a clinical decision support assistant deployed on-premises. All patient data stays within the hospital network. Provide evidence-based analysis."
+    },
+    {
+      "role": "user",
+      "content": "Patient MRN-2024-78432, María García López, age 67. Latest labs: HbA1c 9.2%, fasting glucose 210 mg/dL, creatinine 1.8 mg/dL, eGFR 38 mL/min. Current meds: Metformin 1000mg BID, Lisinopril 20mg QD. History: T2DM x 12 years, HTN, CKD Stage 3b. Assess kidney function trend and recommend medication adjustments considering the declining eGFR."
+    }
+  ],
+  "max_tokens": 400,
+  "temperature": 0.3
+}
+
+###
+
+### ── PHI STEP 3: Same patient data but sent to CLOUD AI (⚠️ WRONG PRACTICE) ──
+### This demonstrates what you should NOT do: sending PHI to a cloud endpoint.
+### The request will technically succeed (Azure OpenAI processes it), but
+### the patient's medical records just left your infrastructure.
+###
+### With YARP + Ollama, you prevent this by design:
+###   - PHI routes → /ai/local/* → Ollama on-prem (data stays home)
+###   - General routes → /ai/chat/* → Azure OpenAI (no PHI in these)
+###
+### Expected: HTTP 200 — works but THIS IS THE ANTI-PATTERN.
+### The guardrails protect against injection/PII, but they can't prevent
+### the data from reaching the cloud. Only routing architecture can.
+
+POST {{gateway}}/ai/chat/completions
+Content-Type: application/json
+
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Patient MRN-2024-78432, María García López, age 67. Latest labs: HbA1c 9.2%, fasting glucose 210 mg/dL. Is the diabetes under control?"
+    }
+  ],
+  "max_tokens": 150,
+  "temperature": 0
 }

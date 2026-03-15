@@ -314,7 +314,8 @@ Yarp.AiGateway.slnx
 │   │       └── PiiOutputGuardrail.cs
 │   │
 │   ├── Yarp.AiGateway.Providers.OpenAI/
-│   └── Yarp.AiGateway.Providers.AzureOpenAI/
+│   ├── Yarp.AiGateway.Providers.AzureOpenAI/
+│   └── Yarp.AiGateway.Providers.Ollama/      # Local LLM — PHI data stays on-prem
 │
 ├── samples/
 │   ├── Sample.MinimalApi/                # Minimal single-route AI sample
@@ -323,10 +324,10 @@ Yarp.AiGateway.slnx
 │   │   ├── appsettings.json              # YARP config (routes, clusters, transforms)
 │   │   └── Sample.MinimalApi.http        # 14 ready-to-run test requests
 │   │
-│   └── Sample.FullFlow/                  # Full-flow demo: YARP → microservices + AI
+│   └── Sample.FullFlow/                  # Full-flow demo: YARP → microservices + AI + Ollama (PHI)
 │       ├── Program.cs                    # 3 apps in 1: Weather µService, Catalog µService, YARP Gateway
 │       ├── aigateway.json                # AI Gateway guardrails config
-│       ├── appsettings.json              # 3 YARP routes × 3 clusters (weather, catalog, AI)
+│       ├── appsettings.json              # 4 YARP routes × 4 clusters (weather, catalog, AI, Ollama)
 │       └── Sample.FullFlow.http          # 23 test requests across all backends
 │
 └── tests/
@@ -541,9 +542,10 @@ dotnet run --project samples/Sample.FullFlow
 
 ```
 Client → YARP Gateway (:5050)
-  ├─ /api/weather/*       → Weather µService (:5100)   [no guardrails]
-  ├─ /api/catalog/*       → Catalog µService (:5200)   [no guardrails]
-  └─ /ai/chat/completions → [Guardrails] → Azure OpenAI
+  ├─ /api/weather/*             → Weather µService (:5100)   [no guardrails]
+  ├─ /api/catalog/*             → Catalog µService (:5200)   [no guardrails]
+  ├─ /ai/chat/completions       → [Guardrails] → Azure OpenAI ☁️
+  └─ /ai/local/chat/completions → [Guardrails] → Ollama LOCAL 🏠 (PHI safe)
 ```
 
 ### The "Weather + Football" Scenario
@@ -559,7 +561,30 @@ This scenario proves the gateway policy: **we serve weather data, but we do NOT 
 
 **Key takeaway:** Steps 2 and 4 use the **same weather data** and the **same people from Siberia**. The only difference is the purpose — football is blocked, conference passes. The guardrail pattern fires inside the YARP pipeline before the request ever reaches Azure OpenAI.
 
-All 26 test requests are in [`Sample.FullFlow.http`](samples/Sample.FullFlow/Sample.FullFlow.http).
+### The PHI Scenario — Protected Health Information stays LOCAL
+
+> **⚠️ When dealing with PHI (Protected Health Information), the data must NEVER leave your organization's infrastructure. No cloud provider should ever see patient records, medical history, or lab results.**
+
+The AI Gateway solves this with **routing architecture, not just contracts**:
+
+| Endpoint | Backend | PHI Safe? | Use Case |
+|----------|---------|-----------|----------|
+| `/ai/chat/completions` | Azure OpenAI ☁️ | ❌ Data leaves your infra | General knowledge queries |
+| `/ai/local/chat/completions` | **Ollama LOCAL** 🏠 | ✅ **Data stays on-prem** | Patient records, lab results, diagnoses |
+
+**Why Ollama for PHI?**
+- **Runs 100% on your servers** — no cloud dependency, no third-party data processing
+- **No API keys needed** — no vendor contract governs your patient data
+- **Same OpenAI chat format** — zero code changes between local and cloud
+- **Same guardrails** — input/output protection still applies
+- **HIPAA/GDPR compliant by architecture** — not by contract, but by design: PHI physically cannot leave your network
+
+```
+  General question:     POST /ai/chat/completions       → Azure OpenAI ☁️  (OK)
+  Patient PHI analysis: POST /ai/local/chat/completions  → Ollama LOCAL 🏠  (PHI stays home)
+```
+
+All test requests are in [`Sample.FullFlow.http`](samples/Sample.FullFlow/Sample.FullFlow.http).
 
 ---
 
@@ -859,12 +884,14 @@ YARP routes define the backend clusters. The AI Gateway supports any LLM backend
 graph TB
     GW[YARP + AI Gateway] --> OAI[OpenAI<br/>/v1/chat/completions<br/>Bearer auth]
     GW --> AZ[Azure OpenAI<br/>/openai/deployments/.../chat/completions<br/>api-key header<br/>Deployment mapping]
+    GW --> OL[Ollama LOCAL<br/>/v1/chat/completions<br/>No auth needed<br/>PHI-safe on-prem]
 ```
 
 | Provider | YARP Cluster | Auth (via transforms) | Features |
 |----------|-------------|----------------------|----------|
 | **OpenAI** | `api.openai.com` | Bearer token | Standard chat completions |
 | **Azure OpenAI** | `*.openai.azure.com` | `api-key` header | Deployment mapping, API versioning |
+| **Ollama** | `ollama-host:11434` | None (local) | On-prem inference, PHI-safe, no cloud dependency |
 
 Standalone mode (`UseAiGateway()`) also supports provider routing and fallback via `IAiProvider` implementations.
 

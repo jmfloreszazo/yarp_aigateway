@@ -8,6 +8,7 @@
     <Project Path="src/Yarp.AiGateway.Core/Yarp.AiGateway.Core.csproj" />
     <Project Path="src/Yarp.AiGateway.Guardrails/Yarp.AiGateway.Guardrails.csproj" />
     <Project Path="src/Yarp.AiGateway.Providers.AzureOpenAI/Yarp.AiGateway.Providers.AzureOpenAI.csproj" />
+    <Project Path="src/Yarp.AiGateway.Providers.Ollama/Yarp.AiGateway.Providers.Ollama.csproj" />
     <Project Path="src/Yarp.AiGateway.Providers.OpenAI/Yarp.AiGateway.Providers.OpenAI.csproj" />
   </Folder>
   <Folder Name="/tests/">

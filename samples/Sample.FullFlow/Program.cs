@@ -6,11 +6,12 @@ using Yarp.ReverseProxy.Transforms;
 //
 //  This sample demonstrates YARP routing to DIFFERENT backends:
 //
-//    /api/weather/*           → Internal Weather microservice (port 5100)
-//    /api/catalog/*           → Internal Catalog microservice (port 5200)
-//    /ai/chat/completions     → Azure OpenAI (with AI Gateway guardrails)
+//    /api/weather/*             → Internal Weather microservice (port 5100)
+//    /api/catalog/*             → Internal Catalog microservice (port 5200)
+//    /ai/chat/completions       → Azure OpenAI ☁️ (with AI Gateway guardrails)
+//    /ai/local/chat/completions → Ollama LOCAL 🏠 (PHI data NEVER leaves your infra)
 //
-//  The AI Gateway guardrails are applied ONLY to the AI route.
+//  The AI Gateway guardrails are applied to ALL AI routes.
 //  Regular microservice routes pass through YARP without guardrails.
 //
 //  Architecture:
@@ -18,13 +19,21 @@ using Yarp.ReverseProxy.Transforms;
 //    Client
 //      │
 //      ▼
-//    ┌──────────────────────────────────────────────────────┐
-//    │  YARP Reverse Proxy (this app, port 5050)            │
-//    │                                                      │
-//    │  /api/weather/*  ──► Weather µService (port 5100)    │
-//    │  /api/catalog/*  ──► Catalog µService (port 5200)    │
-//    │  /ai/chat/*      ──► [Guardrails] ──► Azure OpenAI  │
-//    └──────────────────────────────────────────────────────┘
+//    ┌────────────────────────────────────────────────────────────────┐
+//    │  YARP Reverse Proxy (this app, port 5050)                     │
+//    │                                                               │
+//    │  /api/weather/*       ──► Weather µService (port 5100)        │
+//    │  /api/catalog/*       ──► Catalog µService (port 5200)        │
+//    │  /ai/chat/*           ──► [Guardrails] ──► Azure OpenAI ☁️    │
+//    │  /ai/local/chat/*     ──► [Guardrails] ──► Ollama LOCAL 🏠    │
+//    └────────────────────────────────────────────────────────────────┘
+//
+//  ⚠️  PHI (Protected Health Information) Use-Case:
+//      When dealing with medical records, patient data, or any PHI,
+//      data must NEVER leave the organization's infrastructure.
+//      Route /ai/local/* sends data to a LOCAL Ollama instance —
+//      same guardrails, same OpenAI-compatible API, ZERO data
+//      exfiltration risk. No cloud provider ever sees the PHI.
 //
 // ═══════════════════════════════════════════════════════════════════
 
@@ -172,9 +181,11 @@ static WebApplication BuildGateway(string[] args)
         .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))
         .AddTransforms(context =>
         {
-            // Only inject api-key for the Azure OpenAI cluster
-            if (context.Route.ClusterId == "azure-openai")
+            // Only inject api-key for clusters that route to Azure OpenAI
+            if (context.Route.ClusterId is "azure-openai" or "ollama-local")
             {
+                // NOTE: ollama-local points to Azure OpenAI for TESTING only.
+                // In production, Ollama runs locally with no auth needed.
                 context.AddRequestTransform(tc =>
                 {
                     var apiKey = Environment.GetEnvironmentVariable("AZURE_OPENAI_API_KEY") ?? "";

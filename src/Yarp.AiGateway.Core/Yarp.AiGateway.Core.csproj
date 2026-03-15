@@ -19,6 +19,7 @@
     <ProjectReference Include="..\Yarp.AiGateway.Guardrails\Yarp.AiGateway.Guardrails.csproj" />
     <ProjectReference Include="..\Yarp.AiGateway.Providers.OpenAI\Yarp.AiGateway.Providers.OpenAI.csproj" />
     <ProjectReference Include="..\Yarp.AiGateway.Providers.AzureOpenAI\Yarp.AiGateway.Providers.AzureOpenAI.csproj" />
+    <ProjectReference Include="..\Yarp.AiGateway.Providers.Ollama\Yarp.AiGateway.Providers.Ollama.csproj" />
   </ItemGroup>
 
 </Project>

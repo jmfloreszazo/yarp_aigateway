@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Yarp.AiGateway.Abstractions;
 using Yarp.AiGateway.Core.Configuration;
 using Yarp.AiGateway.Providers.AzureOpenAI;
+using Yarp.AiGateway.Providers.Ollama;
 using Yarp.AiGateway.Providers.OpenAI;
 
 namespace Yarp.AiGateway.Core.Extensions;
@@ -44,6 +45,17 @@ public static class ProviderRegistrationExtensions
                             provider.ApiKey,
                             provider.ApiVersion ?? "2025-01-01-preview",
                             provider.DeploymentMap);
+                    });
+                    break;
+
+                case "ollama":
+                    services.AddHttpClient($"ai-provider-{name}",
+                        client => client.BaseAddress = new Uri(provider.Endpoint));
+
+                    services.AddSingleton<IAiProvider>(sp =>
+                    {
+                        var factory = sp.GetRequiredService<IHttpClientFactory>();
+                        return new OllamaProvider(factory.CreateClient($"ai-provider-{name}"));
                     });
                     break;
 
