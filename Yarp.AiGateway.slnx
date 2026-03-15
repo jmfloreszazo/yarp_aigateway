@@ -13,5 +13,6 @@
   <Folder Name="/tests/">
     <Project Path="tests/Yarp.AiGateway.Core.Tests/Yarp.AiGateway.Core.Tests.csproj" />
     <Project Path="tests/Yarp.AiGateway.Guardrails.Tests/Yarp.AiGateway.Guardrails.Tests.csproj" />
+    <Project Path="tests/Yarp.AiGateway.IntegrationTests/Yarp.AiGateway.IntegrationTests.csproj" />
   </Folder>
 </Solution>
