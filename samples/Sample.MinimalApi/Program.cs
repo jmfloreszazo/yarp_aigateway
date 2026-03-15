@@ -1,28 +1,43 @@
 using Yarp.AiGateway.Core.Extensions;
+using Yarp.ReverseProxy.Transforms;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // ─── YARP reverse proxy ────────────────────────────────────────
-// Standard YARP setup: routes and clusters loaded from appsettings.json.
-// Requests matching a YARP route are forwarded to the upstream cluster
-// with NO guardrails — pure reverse proxy behavior.
+// Routes and clusters loaded from appsettings.json define WHICH
+// backends to proxy to and HOW to transform requests.
 builder.Services.AddReverseProxy()
-    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
+    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))
+    .AddTransforms(context =>
+    {
+        // Inject the API key from an environment variable into every
+        // proxied request. The key never appears in config files.
+        context.AddRequestTransform(transformContext =>
+        {
+            var apiKey = Environment.GetEnvironmentVariable("AZURE_OPENAI_API_KEY") ?? "";
+            transformContext.ProxyRequest.Headers.TryAddWithoutValidation("api-key", apiKey);
+            return ValueTask.CompletedTask;
+        });
+    });
 
-// ─── AI Gateway extension ──────────────────────────────────────
-// Extends YARP with AI-specific guardrails, intelligent routing,
-// PII redaction, prompt injection detection, blocked patterns,
-// quota management, and audit logging.
-// Everything is declared in aigateway.json.
+// ─── AI Gateway guardrails ─────────────────────────────────────
+// Loads guardrail configuration from aigateway.json.
+// Registers input guardrails (PII, injection, patterns, secrets)
+// and output guardrails (blocked patterns, PII in responses).
 builder.Services.AddAiGatewayFromJson("aigateway.json");
 
 var app = builder.Build();
 
-// AI Gateway middleware intercepts POST /ai/chat and runs the
-// full guardrail pipeline before forwarding to the LLM provider.
-app.UseAiGateway();
-
-// YARP reverse proxy handles all other matched routes.
-app.MapReverseProxy();
+// ─── YARP pipeline with AI Gateway guardrails ──────────────────
+// YARP handles the reverse proxying (routing, forwarding, transforms).
+// AI Gateway guardrails sit INSIDE the YARP pipeline, inspecting
+// every request/response before YARP forwards to the backend.
+//
+// Flow: Client → YARP → [Input Guardrails] → Backend (Azure OpenAI)
+//                                           → [Output Guardrails] → Client
+app.MapReverseProxy(proxyPipeline =>
+{
+    proxyPipeline.UseAiGatewayGuardrails();
+});
 
 app.Run();

@@ -55,11 +55,26 @@ public static class AiGatewayServiceCollectionExtensions
 public static class AiGatewayApplicationBuilderExtensions
 {
     /// <summary>
-    /// Adds the AI Gateway middleware to the HTTP pipeline.
+    /// Adds the standalone AI Gateway middleware to the HTTP pipeline.
+    /// The middleware intercepts POST /ai/chat and calls providers directly.
     /// </summary>
     public static IApplicationBuilder UseAiGateway(this IApplicationBuilder app)
     {
         app.UseMiddleware<AiGatewayMiddleware>();
+        return app;
+    }
+
+    /// <summary>
+    /// Adds AI Gateway guardrails to the YARP reverse proxy pipeline.
+    /// YARP handles routing and forwarding; this middleware runs input/output
+    /// guardrails on every request flowing through the proxy.
+    /// <para>
+    /// Usage: <c>app.MapReverseProxy(p => p.UseAiGatewayGuardrails());</c>
+    /// </para>
+    /// </summary>
+    public static IApplicationBuilder UseAiGatewayGuardrails(this IApplicationBuilder app)
+    {
+        app.UseMiddleware<YarpGuardrailMiddleware>();
         return app;
     }
 }
