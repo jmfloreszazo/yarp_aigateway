@@ -86,6 +86,8 @@ graph LR
     - [4. Wire it up in `Program.cs`](#4-wire-it-up-in-programcs)
     - [5. Send requests](#5-send-requests)
     - [Response](#response)
+  - [Full Flow Demo](#full-flow-demo)
+    - [The "Weather + Football" Scenario](#the-weather--football-scenario)
   - [Configuration Reference](#configuration-reference)
     - [Gateway](#gateway)
     - [Providers](#providers)
@@ -522,6 +524,42 @@ If blocked by guardrails, the response is `422 Unprocessable Entity`:
   "blockReason": "Prompt injection detected: DAN jailbreak attempt"
 }
 ```
+
+---
+
+## Full Flow Demo
+
+The **Sample.FullFlow** project runs three apps in a single process to demonstrate how YARP routes requests to different backends — and how guardrails selectively block AI requests based on topic policies.
+
+```bash
+# Set your Azure OpenAI key and run
+export AZURE_OPENAI_API_KEY="your-key"
+dotnet run --project samples/Sample.FullFlow
+```
+
+**Architecture:**
+
+```
+Client → YARP Gateway (:5050)
+  ├─ /api/weather/*       → Weather µService (:5100)   [no guardrails]
+  ├─ /api/catalog/*       → Catalog µService (:5200)   [no guardrails]
+  └─ /ai/chat/completions → [Guardrails] → Azure OpenAI
+```
+
+### The "Weather + Football" Scenario
+
+This scenario proves the gateway policy: **we serve weather data, but we do NOT provide weather-based football analysis through our AI endpoint.**
+
+| Step | Request | Topic | Result |
+|------|---------|-------|--------|
+| **1** | `GET /api/weather/Madrid` | Raw weather data | ✅ `200` — Returns `{"city":"Madrid","tempC":28,"condition":"Sunny"}` |
+| **2** | `POST /ai/chat/completions` — _"Madrid is 28°C. How would a football match go for players from Siberia?"_ | Weather + **Football** | 🚫 `422` — `{"blocked":true,"blockReason":"Prompt blocked: matches forbidden pattern."}` |
+| **3** | `POST /ai/chat/completions` — _"Madrid is 28°C. Good for outdoor construction?"_ | Weather + Construction | ✅ `200` — AI responds normally |
+| **4** | `POST /ai/chat/completions` — _"Madrid is 28°C. Conference attendees from Siberia — clothing tips?"_ | Weather + Siberians + **Conference** | ✅ `200` — AI responds with detailed recommendations |
+
+**Key takeaway:** Steps 2 and 4 use the **same weather data** and the **same people from Siberia**. The only difference is the purpose — football is blocked, conference passes. The guardrail pattern fires inside the YARP pipeline before the request ever reaches Azure OpenAI.
+
+All 26 test requests are in [`Sample.FullFlow.http`](samples/Sample.FullFlow/Sample.FullFlow.http).
 
 ---
 
