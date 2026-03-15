@@ -1,0 +1,120 @@
+{
+  "gateway": {
+    "endpoint": "/ai/chat",
+    "timeoutSeconds": 60
+  },
+
+  "providers": {
+    "azure-openai": {
+      "type": "azure-openai",
+      "endpoint": "https://testjmfzfoundryai.openai.azure.com",
+      "apiKey": "env:AZURE_OPENAI_API_KEY",
+      "defaultModel": "gpt-5-chat",
+      "enabled": true,
+      "deploymentMap": {
+        "gpt-5-chat": "gpt-5-chat"
+      }
+    }
+  },
+
+  "routing": {
+    "defaultProvider": "azure-openai",
+    "defaultModel": "gpt-5-chat",
+    "rules": [
+      {
+        "name": "default-azure",
+        "provider": "azure-openai",
+        "model": "gpt-5-chat",
+        "conditions": []
+      }
+    ],
+    "fallbacks": []
+  },
+
+  "guardrails": {
+    "input": [
+      {
+        "type": "max-length",
+        "mode": "block",
+        "parameters": { "maxLength": 32000 }
+      },
+      {
+        "type": "prompt-injection",
+        "mode": "block",
+        "parameters": {}
+      },
+      {
+        "type": "pii",
+        "mode": "sanitize",
+        "parameters": {
+          "detectEmails": true,
+          "detectPhones": true,
+          "detectCreditCards": true,
+          "detectSsn": true,
+          "detectIban": true,
+          "detectSpanishDni": true
+        }
+      },
+      {
+        "type": "secret-detection",
+        "mode": "block",
+        "parameters": {}
+      },
+      {
+        "type": "blocked-patterns",
+        "mode": "block",
+        "parameters": {
+          "patterns": [
+            "DROP TABLE",
+            "DELETE FROM",
+            "TRUNCATE TABLE",
+            "UNION SELECT",
+            "xp_cmdshell",
+            "<script>",
+            "<iframe>",
+            "javascript:",
+            "eval(",
+            "politics",
+            "football",
+            "Champions League"
+          ]
+        }
+      }
+    ],
+    "output": [
+      {
+        "type": "blocked-patterns",
+        "mode": "block",
+        "parameters": {
+          "patterns": [
+            "internal server error",
+            "stack trace:",
+            "password=",
+            "api_key",
+            "BEGIN RSA PRIVATE KEY",
+            "AccountKey=",
+            "sk-proj-"
+          ]
+        }
+      },
+      {
+        "type": "pii",
+        "mode": "sanitize",
+        "parameters": {}
+      }
+    ]
+  },
+
+  "quotas": {
+    "enabled": false,
+    "rules": []
+  },
+
+  "telemetry": {
+    "enabled": true,
+    "logLevel": "Information",
+    "emitMetrics": true,
+    "emitTraces": true,
+    "emitAuditEvents": true
+  }
+}

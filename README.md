@@ -315,11 +315,17 @@ Yarp.AiGateway.slnx
 │   └── Yarp.AiGateway.Providers.AzureOpenAI/
 │
 ├── samples/
-│   └── Sample.MinimalApi/                # Working sample application
-│       ├── Program.cs                    # YARP + AI Gateway guardrails wiring
-│       ├── aigateway.json                # AI Gateway config (guardrails)
-│       ├── appsettings.json              # YARP config (routes, clusters, transforms)
-│       └── Sample.MinimalApi.http        # 14 ready-to-run test requests
+│   ├── Sample.MinimalApi/                # Minimal single-route AI sample
+│   │   ├── Program.cs                    # YARP + AI Gateway guardrails wiring
+│   │   ├── aigateway.json                # AI Gateway config (guardrails)
+│   │   ├── appsettings.json              # YARP config (routes, clusters, transforms)
+│   │   └── Sample.MinimalApi.http        # 14 ready-to-run test requests
+│   │
+│   └── Sample.FullFlow/                  # Full-flow demo: YARP → microservices + AI
+│       ├── Program.cs                    # 3 apps in 1: Weather µService, Catalog µService, YARP Gateway
+│       ├── aigateway.json                # AI Gateway guardrails config
+│       ├── appsettings.json              # 3 YARP routes × 3 clusters (weather, catalog, AI)
+│       └── Sample.FullFlow.http          # 23 test requests across all backends
 │
 └── tests/
     ├── Yarp.AiGateway.Core.Tests/
