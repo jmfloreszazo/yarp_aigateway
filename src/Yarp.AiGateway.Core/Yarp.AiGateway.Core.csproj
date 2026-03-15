@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Yarp.AiGateway.Abstractions\Yarp.AiGateway.Abstractions.csproj" />
+    <ProjectReference Include="..\Yarp.AiGateway.Guardrails\Yarp.AiGateway.Guardrails.csproj" />
+    <ProjectReference Include="..\Yarp.AiGateway.Providers.OpenAI\Yarp.AiGateway.Providers.OpenAI.csproj" />
+    <ProjectReference Include="..\Yarp.AiGateway.Providers.AzureOpenAI\Yarp.AiGateway.Providers.AzureOpenAI.csproj" />
+    <ProjectReference Include="..\Yarp.AiGateway.Providers.Mistral\Yarp.AiGateway.Providers.Mistral.csproj" />
+  </ItemGroup>
+
+</Project>

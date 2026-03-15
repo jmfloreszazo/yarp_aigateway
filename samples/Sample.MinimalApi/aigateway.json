@@ -1,0 +1,160 @@
+{
+  "gateway": {
+    "listenPath": "/ai",
+    "timeoutSeconds": 60
+  },
+  "providers": {
+    "openai": {
+      "type": "openai",
+      "endpoint": "https://api.openai.com",
+      "apiKey": "env:OPENAI_API_KEY",
+      "defaultModel": "gpt-4o"
+    },
+    "azure-openai": {
+      "type": "azure-openai",
+      "endpoint": "env:AZURE_OPENAI_ENDPOINT",
+      "apiKey": "env:AZURE_OPENAI_API_KEY",
+      "defaultModel": "gpt-4o",
+      "deploymentMap": {
+        "gpt-4o": "gpt4o-deployment",
+        "gpt-4o-mini": "gpt4omini-deployment"
+      }
+    },
+    "mistral": {
+      "type": "mistral",
+      "endpoint": "https://api.mistral.ai",
+      "apiKey": "env:MISTRAL_API_KEY",
+      "defaultModel": "mistral-large-latest"
+    }
+  },
+  "routing": {
+    "rules": [
+      {
+        "name": "high-priority-azure",
+        "provider": "azure-openai",
+        "model": "gpt-4o",
+        "conditions": [
+          {
+            "field": "metadata.priority",
+            "operator": "eq",
+            "value": "high"
+          }
+        ]
+      },
+      {
+        "name": "long-prompts-to-mistral",
+        "provider": "mistral",
+        "model": "mistral-large-latest",
+        "conditions": [
+          {
+            "field": "prompt.length",
+            "operator": "gt",
+            "value": 8000
+          }
+        ]
+      },
+      {
+        "name": "default-openai",
+        "provider": "openai",
+        "model": "gpt-4o",
+        "conditions": []
+      }
+    ],
+    "fallbacks": [
+      {
+        "from": "openai",
+        "to": "azure-openai"
+      },
+      {
+        "from": "azure-openai",
+        "to": "mistral"
+      }
+    ]
+  },
+  "guardrails": {
+    "input": [
+      {
+        "type": "max-length",
+        "mode": "block",
+        "parameters": {
+          "maxLength": 32000
+        }
+      },
+      {
+        "type": "prompt-injection",
+        "mode": "block",
+        "parameters": {}
+      },
+      {
+        "type": "semantic",
+        "mode": "block",
+        "parameters": {
+          "thresholds": {
+            "violence": 0.7,
+            "self-harm": 0.5,
+            "sexual": 0.6,
+            "hate": 0.5,
+            "illegal": 0.6,
+            "data-exfiltration": 0.5,
+            "manipulation": 0.6
+          }
+        }
+      },
+      {
+        "type": "pii",
+        "mode": "sanitize",
+        "parameters": {
+          "customPatterns": [
+            "\\b[A-Z]{2}\\d{7}\\b"
+          ]
+        }
+      },
+      {
+        "type": "secret-detection",
+        "mode": "block",
+        "parameters": {}
+      },
+      {
+        "type": "blocked-patterns",
+        "mode": "block",
+        "parameters": {
+          "patterns": [
+            "DROP TABLE",
+            "DELETE FROM",
+            "xp_cmdshell",
+            "<script>"
+          ]
+        }
+      }
+    ],
+    "output": [
+      {
+        "type": "blocked-patterns",
+        "mode": "block",
+        "parameters": {
+          "patterns": [
+            "internal server error",
+            "stack trace:",
+            "connection string"
+          ]
+        }
+      },
+      {
+        "type": "pii",
+        "mode": "sanitize",
+        "parameters": {}
+      }
+    ]
+  },
+  "quotas": {
+    "enabled": true,
+    "requestsPerMinute": 60,
+    "tokensPerMinute": 100000,
+    "scope": "user"
+  },
+  "telemetry": {
+    "enabled": true,
+    "auditRequests": true,
+    "logLevel": "Information"
+  }
+}
