@@ -829,16 +829,22 @@ Detects and optionally redacts personally identifiable information using high-pe
 | SSN (US) | ✅ | `[REDACTED_SSN]` |
 | IBAN | ✅ | `[REDACTED_IBAN]` |
 | Spanish DNI/NIE | ✅ | `[REDACTED_DNI]` |
+| **Medical Record Numbers** (MRN/NHC/HC) | ❌ | `[REDACTED_MRN]` |
+| **Patient Names** (after "Patient"/"Paciente") | ❌ | `[REDACTED_PATIENT]` |
 | IP addresses | ❌ | `[REDACTED_IP]` |
 | Passport numbers | ❌ | `[REDACTED_PASSPORT]` |
 | Dates of birth | ❌ | `[REDACTED_DOB]` |
 | Custom patterns | ❌ | Configurable |
+
+> **PHI-ready**: Enable `detectMedicalRecordNumbers` and `detectPatientNames` for healthcare scenarios. Combined with Ollama local routing, this provides defense-in-depth for HIPAA/GDPR compliance.
 
 ```json
 {
   "type": "pii",
   "mode": "sanitize",
   "parameters": {
+    "detectMedicalRecordNumbers": true,
+    "detectPatientNames": true,
     "detectIpAddresses": true,
     "customPatterns": ["\\bPAT-\\d{8}\\b"]
   }
